@@ -32,6 +32,13 @@ export async function POST(req: NextRequest) {
     // --- Step 1: Build prompt ---
     const systemMessage = `
       You are an AI assistant that designs workflow diagrams based on user requests.
+      
+      IMPORTANT: Follow the patterns from the reference templates:
+      - 01-simple-agent.ts: Basic Start -> Agent -> End flow
+      - 02-agent-with-firecrawl.ts: Agent with Firecrawl MCP tools for web research
+      - 03-scrape-summarize-docs.ts: Multi-agent workflows with data passing via {{lastOutput}}
+      - 04-advanced-workflow.ts: Complex workflows with loops, conditions, and transformations
+      
       Generate workflow nodes and edges in JSON format matching this exact structure:
 
       AVAILABLE NODE TYPES:
@@ -105,6 +112,17 @@ export async function POST(req: NextRequest) {
         }
         NOTE: For web research, scraping, or searching, add mcpTools with Firecrawl.
         The agent can then use firecrawl_search and firecrawl_scrape tools in its instructions.
+        
+        REFERENCE PATTERN (from 02-agent-with-firecrawl.ts):
+        - Instructions should explicitly tell the agent to use firecrawl_search first, then firecrawl_scrape for details
+        - Format: "Use the firecrawl_search tool to search for: {{input.query}}. Then use firecrawl_scrape to get detailed content..."
+        - Return structured summaries that are easy for the next agent to parse
+        
+        IMPORTANT - Passing data between agents (from 03-scrape-summarize-docs.ts pattern):
+        - Always use {{lastOutput}} to reference the previous agent's complete output
+        - When an agent receives {{lastOutput}}, explicitly describe what format the data is in
+        - Example from template: "Analyze the following scraped content: {{lastOutput}}" - the formatting agent knows it's scraped content
+        - For reports/formatting: Describe the structure: "The previous output ({{lastOutput}}) contains [detailed structure]. Format it into..."
 
       3. TRANSFORM node:
         {
@@ -240,7 +258,7 @@ export async function POST(req: NextRequest) {
         ]
       }
 
-      Example 2 - Agent with Firecrawl Web Research:
+      Example 2 - Agent with Firecrawl (REFERENCE: 02-agent-with-firecrawl.ts template):
       {
         "nodes": [
           {
@@ -256,7 +274,8 @@ export async function POST(req: NextRequest) {
                   "name": "search_query",
                   "type": "string",
                   "required": true,
-                  "description": "What to research on the web"
+                  "description": "What would you like to research on the web?",
+                  "defaultValue": "latest AI developments in 2025"
                 }
               ]
             }
@@ -269,7 +288,7 @@ export async function POST(req: NextRequest) {
               "nodeType": "agent",
               "nodeName": "Web Research Agent",
               "label": "Web Research Agent",
-              "instructions": "Use firecrawl_search to search for: {{input.search_query}}. Then use firecrawl_scrape to get detailed content from the most relevant URLs. Summarize the findings.",
+              "instructions": "You are a web research assistant with access to Firecrawl MCP tools. Your task:\n\n1. Use the firecrawl_search tool to search for: {{input.search_query}}\n2. Review the search results and identify the most relevant sources\n3. If needed, use firecrawl_scrape to get detailed content from specific URLs\n4. Synthesize the information into a clear, well-organized summary\n\nProvide a comprehensive summary with key findings, organized by topic or source.",
               "model": "anthropic/claude-sonnet-4-20250514",
               "outputFormat": "Text",
               "mcpTools": [
@@ -298,6 +317,79 @@ export async function POST(req: NextRequest) {
         ]
       }
 
+      Example 3 - Multi-Agent with Data Passing (REFERENCE: 03-scrape-summarize-docs.ts template pattern):
+      {
+        "nodes": [
+          {
+            "id": "start",
+            "type": "start",
+            "position": {"x": 100, "y": 200},
+            "data": {
+              "nodeType": "start",
+              "nodeName": "Start",
+              "label": "Start",
+              "inputVariables": [
+                {
+                  "name": "url",
+                  "type": "string",
+                  "required": true,
+                  "description": "URL to scrape",
+                  "defaultValue": "https://www.example.com/news"
+                }
+              ]
+            }
+          },
+          {
+            "id": "scrape-agent",
+            "type": "agent",
+            "position": {"x": 350, "y": 200},
+            "data": {
+              "nodeType": "agent",
+              "nodeName": "Scrape Website",
+              "label": "Scrape Website",
+              "instructions": "Use Firecrawl MCP tools to scrape the content from this URL: {{input.url}}\n\nUse the firecrawl_scrape tool with markdown format.\n\nExtract the main content, focusing on:\n- Article titles\n- Key points\n- Important information\n\nReturn the scraped content in a clean, organized format.",
+              "model": "anthropic/claude-sonnet-4-20250514",
+              "outputFormat": "Text",
+              "mcpTools": [
+                {
+                  "name": "Firecrawl",
+                  "url": "https://mcp.firecrawl.dev/{FIRECRAWL_API_KEY}/v2/mcp",
+                  "accessToken": "$" + "{FIRECRAWL_API_KEY}"
+                }
+              ]
+            }
+          },
+          {
+            "id": "summarize-agent",
+            "type": "agent",
+            "position": {"x": 600, "y": 200},
+            "data": {
+              "nodeType": "agent",
+              "nodeName": "Summarize Content",
+              "label": "Summarize Content",
+              "instructions": "Analyze the following scraped content and create a professional summary:\n\n{{lastOutput}}\n\nCreate a well-structured summary with:\n1. Executive Summary (2-3 sentences)\n2. Key Points (bullet points)\n3. Detailed Findings (organized by topic)\n4. Conclusion\n\nFormat it in a way that's suitable for presentation.",
+              "model": "anthropic/claude-sonnet-4-20250514",
+              "outputFormat": "Text"
+            }
+          },
+          {
+            "id": "end",
+            "type": "end",
+            "position": {"x": 850, "y": 200},
+            "data": {
+              "nodeType": "end",
+              "nodeName": "End",
+              "label": "End"
+            }
+          }
+        ],
+        "edges": [
+          {"id": "e1", "source": "start", "target": "scrape-agent"},
+          {"id": "e2", "source": "scrape-agent", "target": "summarize-agent"},
+          {"id": "e3", "source": "summarize-agent", "target": "end"}
+        ]
+      }
+
       RULES:
       1. Workflow MUST start with a "start" node and end with an "end" node
       2. All node ids must be unique
@@ -307,7 +399,14 @@ export async function POST(req: NextRequest) {
       6. For web research/scraping: Prefer agent nodes with Firecrawl mcpTools for intelligent web operations
       7. For direct web scraping: Use MCP nodes with Firecrawl for specific URLs or search queries
       8. When user requests involve web scraping, searching, or internet research, include Firecrawl tools
-      9. Output ONLY valid JSON - no markdown, code fences, or extra text
+      9. CRITICAL - Data flow between agents:
+         - When agent A uses Firecrawl and agent B needs its output, use {{lastOutput}} in agent B's instructions
+         - Agent B should explicitly be told to parse/format the data from {{lastOutput}}
+         - Example: "Format the following data into a report: {{lastOutput}}. The data contains [describe what's in it]."
+         - For reports/formatting: Tell the agent the EXACT structure of data in {{lastOutput}} (e.g., "articles array", "JSON object with fields X, Y, Z")
+         - NEVER use variable references like {{nodeId.output.field}} - use {{lastOutput}} which contains the previous node's complete output
+         - When a research agent returns structured text, explicitly tell the formatting agent: "The previous node output ({{lastOutput}}) contains [detailed description]. Format it into..."
+      10. Output ONLY valid JSON - no markdown, code fences, or extra text
 
       EXAMPLES OF FIREZCRAWL USAGE:
       - Agent with web research: Agent node with mcpTools containing Firecrawl, instructions mention using firecrawl_search or firecrawl_scrape
