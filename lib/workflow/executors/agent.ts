@@ -71,6 +71,19 @@ export async function executeAgentNode(
       }
     }
 
+    // Truncate lastOutput if it's too large to avoid rate limits
+    let truncatedLastOutput = lastOutput;
+    if (lastOutput && typeof lastOutput === 'string' && lastOutput.length > 8000) {
+      truncatedLastOutput = lastOutput.substring(0, 8000) + '\n\n[Content truncated to save tokens...]';
+      console.warn(`⚠️ Truncating lastOutput from ${lastOutput.length} to 8000 chars to avoid rate limits`);
+    } else if (lastOutput && typeof lastOutput === 'object') {
+      const lastOutputStr = JSON.stringify(lastOutput);
+      if (lastOutputStr.length > 8000) {
+        truncatedLastOutput = JSON.stringify(lastOutput).substring(0, 8000) + '...[truncated]';
+        console.warn(`⚠️ Truncating lastOutput object from ${lastOutputStr.length} to 8000 chars`);
+      }
+    }
+
     // Use the already-substituted instructions from line 20
     // Don't re-process or append context if variables are already substituted
     const contextualPrompt = instructions;
@@ -146,7 +159,7 @@ export async function executeAgentNode(
 
         const response = await client.beta.messages.create({
           model: modelName,
-          max_tokens: 4096,
+          max_tokens: 3000, // Reduced from 4096 to stay within rate limits
           messages: messages as any,
           mcp_servers: mcpServers as any,
           betas: ['mcp-client-2025-04-04'],
@@ -193,7 +206,7 @@ export async function executeAgentNode(
         // Regular Anthropic call without MCP
         const response = await client.messages.create({
           model: modelName,
-          max_tokens: 4096,
+          max_tokens: 3000, // Reduced from 4096 to stay within rate limits
           messages: messages as any,
         });
 
