@@ -10,6 +10,7 @@ const isPublicRoute = createRouteMatcher([
   '/api/templates(.*)',
   '/api/mcp(.*)',
   '/api/test-mcp-connection(.*)',
+  '/api/prompt-workflow(.*)',
 ])
 
 // Define API routes that require API key authentication (bypass Clerk auth)

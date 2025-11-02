@@ -23,10 +23,20 @@ export function substituteVariables(text: string, state: WorkflowState): string 
       }
 
       if (typeof value === 'object') {
-        return JSON.stringify(value);
+        const jsonStr = JSON.stringify(value);
+        // Truncate large objects to avoid rate limits (max 8000 chars)
+        if (jsonStr.length > 8000) {
+          return jsonStr.substring(0, 8000) + '...[truncated]';
+        }
+        return jsonStr;
       }
 
-      return String(value);
+      const strValue = String(value);
+      // Truncate large strings to avoid rate limits (max 8000 chars)
+      if (strValue.length > 8000) {
+        return strValue.substring(0, 8000) + '\n\n[Content truncated to save tokens...]';
+      }
+      return strValue;
     } catch (e) {
       console.warn(`Failed to substitute variable: ${expression}`, e);
       return match; // Keep original on error
