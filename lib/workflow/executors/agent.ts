@@ -157,13 +157,46 @@ export async function executeAgentNode(
           authorization_token: mcp.accessToken,
         }));
 
-        const response = await client.beta.messages.create({
-          model: modelName,
-          max_tokens: 3000, // Reduced from 4096 to stay within rate limits
-          messages: messages as any,
-          mcp_servers: mcpServers as any,
-          betas: ['mcp-client-2025-04-04'],
-        } as any);
+        // Retry logic for overloaded errors (529)
+        let response;
+        let retries = 3;
+        let lastError: any = null;
+        
+        while (retries > 0) {
+          try {
+            response = await client.beta.messages.create({
+              model: modelName,
+              max_tokens: 3000, // Reduced from 4096 to stay within rate limits
+              messages: messages as any,
+              mcp_servers: mcpServers as any,
+              betas: ['mcp-client-2025-04-04'],
+            } as any);
+            break; // Success, exit retry loop
+          } catch (error: any) {
+            lastError = error;
+            const errorMessage = error?.message || error?.error?.message || '';
+            const errorType = error?.error?.type || '';
+            
+            // Check if it's an overloaded error (529) or rate limit (429)
+            const isRetryable = (errorType === 'overloaded_error' || errorType === 'rate_limit_error' || 
+                                errorMessage.includes('529') || errorMessage.includes('429') || 
+                                errorMessage.includes('Overloaded') || errorMessage.includes('rate limit'));
+            
+            if (isRetryable && retries > 1) {
+              const delay = Math.pow(2, 4 - retries) * 1000; // Exponential backoff: 2s, 4s, 8s
+              const errorName = errorType === 'rate_limit_error' || errorMessage.includes('429') ? 'rate limited (429)' : 'overloaded (529)';
+              console.warn(`⚠️ API ${errorName}, retrying in ${delay}ms... (${retries - 1} attempts left)`);
+              await new Promise(resolve => setTimeout(resolve, delay));
+              retries--;
+              continue;
+            }
+            throw error; // Not retryable or out of retries, throw immediately
+          }
+        }
+        
+        if (!response) {
+          throw lastError || new Error('Failed to get API response after retries');
+        }
 
         // Extract text and tool information from content
         // Handle both standard tool_use and mcp_tool_use formats
@@ -204,11 +237,44 @@ export async function executeAgentNode(
         });
       } else {
         // Regular Anthropic call without MCP
-        const response = await client.messages.create({
-          model: modelName,
-          max_tokens: 3000, // Reduced from 4096 to stay within rate limits
-          messages: messages as any,
-        });
+        // Retry logic for overloaded errors (529)
+        let response;
+        let retries = 3;
+        let lastError: any = null;
+        
+        while (retries > 0) {
+          try {
+            response = await client.messages.create({
+              model: modelName,
+              max_tokens: 3000, // Reduced from 4096 to stay within rate limits
+              messages: messages as any,
+            });
+            break; // Success, exit retry loop
+          } catch (error: any) {
+            lastError = error;
+            const errorMessage = error?.message || error?.error?.message || '';
+            const errorType = error?.error?.type || '';
+            
+            // Check if it's an overloaded error (529) or rate limit (429)
+            const isRetryable = (errorType === 'overloaded_error' || errorType === 'rate_limit_error' || 
+                                errorMessage.includes('529') || errorMessage.includes('429') || 
+                                errorMessage.includes('Overloaded') || errorMessage.includes('rate limit'));
+            
+            if (isRetryable && retries > 1) {
+              const delay = Math.pow(2, 4 - retries) * 1000; // Exponential backoff: 2s, 4s, 8s
+              const errorName = errorType === 'rate_limit_error' || errorMessage.includes('429') ? 'rate limited (429)' : 'overloaded (529)';
+              console.warn(`⚠️ API ${errorName}, retrying in ${delay}ms... (${retries - 1} attempts left)`);
+              await new Promise(resolve => setTimeout(resolve, delay));
+              retries--;
+              continue;
+            }
+            throw error; // Not retryable or out of retries, throw immediately
+          }
+        }
+        
+        if (!response) {
+          throw lastError || new Error('Failed to get API response after retries');
+        }
 
         responseText = response.content[0].type === 'text' ? response.content[0].text : '';
         usage = (response.usage as any) || {};
@@ -431,6 +497,10 @@ export async function executeAgentNode(
 
     if (errorMessage.includes('rate limit') || errorMessage.includes('429')) {
       throw new Error('Rate limited. Please wait a moment and try again.');
+    }
+
+    if (errorMessage.includes('overloaded') || errorMessage.includes('529')) {
+      throw new Error('API is temporarily overloaded. Please wait a moment and try again.');
     }
 
     if (errorMessage.includes('No API key available')) {
