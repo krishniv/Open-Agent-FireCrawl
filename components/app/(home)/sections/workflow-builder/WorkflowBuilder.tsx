@@ -421,12 +421,24 @@ function WorkflowBuilderInner({
         };
       });
 
+      // Clean up any invalid edges before layout
+      const cleaned = cleanupInvalidEdges(nodesWithLabels as any, workflowData.edges);
+      
       const layoutedNodes = autoLayoutNodes(
-        nodesWithLabels,
-        workflowData.edges
+        cleaned.nodes as any,
+        cleaned.edges as any
       );
       setNodes(layoutedNodes);
-      setEdges(workflowData.edges);
+      setEdges(cleaned.edges);
+      
+      if (cleaned.removedCount > 0) {
+        toast.warning(
+          `Removed ${cleaned.removedCount} invalid connection(s)`,
+          {
+            description: "Some edges referenced nodes that don't exist",
+          }
+        );
+      }
 
       resetNodeIdCounter(layoutedNodes);
 

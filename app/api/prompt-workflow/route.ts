@@ -31,40 +31,293 @@ export async function POST(req: NextRequest) {
 
     // --- Step 1: Build prompt ---
     const systemMessage = `
-      You are an AI assistant that designs workflow diagrams.
-      Given a user's request, generate a list of workflow nodes and edges in JSON format.
-      The workflow should start with a "start" node and end with an "end" node.
-      Node types: "start", "end", "agent", "mcp", "if-else", "while", "user-approval", "transform", "extract", "http", "set-state", "note".
-      Each node must have:
-        - id (unique, like "node_X")
-        - type (from above list)
-        - position (x, y numbers)
-        - data (with nodeType and nodeName)
-      Each edge must have:
-        - id
-        - source
-        - target
-        - optional label
+      You are an AI assistant that designs workflow diagrams based on user requests.
+      Generate workflow nodes and edges in JSON format matching this exact structure:
 
-      Example:
+      AVAILABLE NODE TYPES:
+      - "start": Entry point (required at beginning)
+      - "end": Exit point (required at end)
+      - "agent": LLM agent node for processing/generation (can include MCP tools like Firecrawl for web scraping/searching)
+      - "mcp": MCP (Model Context Protocol) tool node (for direct Firecrawl actions: scrape, search, crawl, map)
+      - "if-else": Conditional branching node
+      - "while": Loop/iteration node
+      - "user-approval": Human approval gate
+      - "transform": Data transformation using JavaScript
+      - "extract": Extract structured data from input
+      - "http": HTTP request node
+      - "set-state": Store/update workflow state
+      - "note": Documentation/annotation node
+
+      WEB SCRAPING & SEARCHING OPTIONS:
+      - For agent-based web research: Use "agent" node with mcpTools containing Firecrawl. The agent can use firecrawl_search and firecrawl_scrape tools.
+      - For direct web operations: Use "mcp" node with Firecrawl configuration for scrape/search/crawl/map actions.
+
+      NODE STRUCTURE (all nodes require):
+      {
+        "id": "unique_id" (e.g., "start", "agent-1", "node_0"),
+        "type": "node_type",
+        "position": {"x": number, "y": number},
+        "data": {
+          "nodeType": "same_as_type",
+          "nodeName": "Display Name",
+          "label": "Display Name",
+          // Additional properties based on node type:
+        }
+      }
+
+      NODE-SPECIFIC DATA PROPERTIES:
+
+      1. START node:
+        {
+          "data": {
+            "nodeType": "start",
+            "nodeName": "Start",
+            "label": "Start",
+            "inputVariables": [
+              {
+                "name": "variable_name",
+                "type": "string",
+                "required": true,
+                "description": "What this input is for"
+              }
+            ]
+          }
+        }
+
+      2. AGENT node:
+        {
+          "data": {
+            "nodeType": "agent",
+            "nodeName": "Agent Name",
+            "label": "Agent Name",
+            "instructions": "What the agent should do. Use {{variableName}} for variable substitution.",
+            "model": "anthropic/claude-sonnet-4-20250514",
+            "outputFormat": "Text" or "JSON",
+            "jsonOutputSchema": "optional JSON schema string if outputFormat is JSON",
+            "mcpTools": [
+              {
+                "name": "Firecrawl",
+                "url": "https://mcp.firecrawl.dev/{FIRECRAWL_API_KEY}/v2/mcp",
+                "accessToken": "$" + "{FIRECRAWL_API_KEY}"
+              }
+            ]
+          }
+        }
+        NOTE: For web research, scraping, or searching, add mcpTools with Firecrawl.
+        The agent can then use firecrawl_search and firecrawl_scrape tools in its instructions.
+
+      3. TRANSFORM node:
+        {
+          "data": {
+            "nodeType": "transform",
+            "nodeName": "Transform Name",
+            "label": "Transform Name",
+            "transformScript": "JavaScript code that processes input and returns result"
+          }
+        }
+
+      4. IF-ELSE node:
+        {
+          "data": {
+            "nodeType": "if-else",
+            "nodeName": "Condition Name",
+            "label": "Condition Name",
+            "condition": "JavaScript expression that returns boolean",
+            "trueLabel": "Yes",
+            "falseLabel": "No"
+          }
+        }
+
+      5. WHILE node:
+        {
+          "data": {
+            "nodeType": "while",
+            "nodeName": "Loop Name",
+            "label": "Loop Name",
+            "whileCondition": "JavaScript condition (e.g., 'iteration <= 5')",
+            "maxIterations": 10
+          }
+        }
+
+      6. NOTE node:
+        {
+          "data": {
+            "nodeType": "note",
+            "nodeName": "Note Title",
+            "label": "Note Title",
+            "noteText": "Documentation text explaining the workflow or section"
+          }
+        }
+
+      7. END node:
+        {
+          "data": {
+            "nodeType": "end",
+            "nodeName": "End",
+            "label": "End"
+          }
+        }
+
+      8. MCP node (for Firecrawl web operations):
+        {
+          "data": {
+            "nodeType": "mcp",
+            "nodeName": "Web Scrape" or "Web Search",
+            "label": "Web Scrape" or "Web Search",
+            "mcpServers": [
+              {
+                "id": "firecrawl",
+                "name": "Firecrawl",
+                "label": "firecrawl",
+                "url": "https://mcp.firecrawl.dev/{FIRECRAWL_API_KEY}/v2/mcp",
+                "authType": "Access token / API key"
+              }
+            ],
+            "mcpAction": "scrape" or "search" or "crawl" or "map",
+            "scrapeUrl": "URL to scrape (if action is scrape)",
+            "searchQuery": "Query to search (if action is search)",
+            "outputField": "first" or "full" or specific field path
+          }
+        }
+
+      EDGE STRUCTURE:
+      {
+        "id": "edge_id",
+        "source": "source_node_id",
+        "target": "target_node_id"
+      }
+
+      COMPLETE EXAMPLES:
+
+      Example 1 - Simple Agent:
       {
         "nodes": [
-          {"id": "node_0", "type": "start", "position": {"x": 250, "y": 250}, "data": {"nodeType": "start", "nodeName": "Start"}},
-          {"id": "node_1", "type": "agent", "position": {"x": 500, "y": 250}, "data": {"nodeType": "agent", "nodeName": "Research Agent"}},
-          {"id": "node_2", "type": "end", "position": {"x": 750, "y": 250}, "data": {"nodeType": "end", "nodeName": "End"}}
+          {
+            "id": "start",
+            "type": "start",
+            "position": {"x": 100, "y": 200},
+            "data": {
+              "nodeType": "start",
+              "nodeName": "Start",
+              "label": "Start",
+              "inputVariables": [
+                {
+                  "name": "question",
+                  "type": "string",
+                  "required": true,
+                  "description": "The question to answer"
+                }
+              ]
+            }
+          },
+          {
+            "id": "agent-1",
+            "type": "agent",
+            "position": {"x": 350, "y": 200},
+            "data": {
+              "nodeType": "agent",
+              "nodeName": "Answer Question",
+              "label": "Answer Question",
+              "instructions": "Answer this question clearly and concisely: {{input.question}}",
+              "model": "anthropic/claude-sonnet-4-20250514",
+              "outputFormat": "Text"
+            }
+          },
+          {
+            "id": "end",
+            "type": "end",
+            "position": {"x": 600, "y": 200},
+            "data": {
+              "nodeType": "end",
+              "nodeName": "End",
+              "label": "End"
+            }
+          }
         ],
         "edges": [
-          {"id": "edge_0-1", "source": "node_0", "target": "node_1"},
-          {"id": "edge_1-2", "source": "node_1", "target": "node_2"}
+          {"id": "e1", "source": "start", "target": "agent-1"},
+          {"id": "e2", "source": "agent-1", "target": "end"}
         ]
       }
 
-      IMPORTANT: Output ONLY valid JSON. No markdown, code fences, or commentary.
+      Example 2 - Agent with Firecrawl Web Research:
+      {
+        "nodes": [
+          {
+            "id": "start",
+            "type": "start",
+            "position": {"x": 100, "y": 200},
+            "data": {
+              "nodeType": "start",
+              "nodeName": "Start",
+              "label": "Start",
+              "inputVariables": [
+                {
+                  "name": "search_query",
+                  "type": "string",
+                  "required": true,
+                  "description": "What to research on the web"
+                }
+              ]
+            }
+          },
+          {
+            "id": "research-agent",
+            "type": "agent",
+            "position": {"x": 350, "y": 200},
+            "data": {
+              "nodeType": "agent",
+              "nodeName": "Web Research Agent",
+              "label": "Web Research Agent",
+              "instructions": "Use firecrawl_search to search for: {{input.search_query}}. Then use firecrawl_scrape to get detailed content from the most relevant URLs. Summarize the findings.",
+              "model": "anthropic/claude-sonnet-4-20250514",
+              "outputFormat": "Text",
+              "mcpTools": [
+                {
+                  "name": "Firecrawl",
+                  "url": "https://mcp.firecrawl.dev/{FIRECRAWL_API_KEY}/v2/mcp",
+                  "accessToken": "$" + "{FIRECRAWL_API_KEY}"
+                }
+              ]
+            }
+          },
+          {
+            "id": "end",
+            "type": "end",
+            "position": {"x": 600, "y": 200},
+            "data": {
+              "nodeType": "end",
+              "nodeName": "End",
+              "label": "End"
+            }
+          }
+        ],
+        "edges": [
+          {"id": "e1", "source": "start", "target": "research-agent"},
+          {"id": "e2", "source": "research-agent", "target": "end"}
+        ]
+      }
+
+      RULES:
+      1. Workflow MUST start with a "start" node and end with an "end" node
+      2. All node ids must be unique
+      3. Edge source/target must reference existing node ids
+      4. Use reasonable position coordinates (x increments of 250-350, y can vary for parallel flows)
+      5. For agent nodes, provide clear, actionable instructions
+      6. For web research/scraping: Prefer agent nodes with Firecrawl mcpTools for intelligent web operations
+      7. For direct web scraping: Use MCP nodes with Firecrawl for specific URLs or search queries
+      8. When user requests involve web scraping, searching, or internet research, include Firecrawl tools
+      9. Output ONLY valid JSON - no markdown, code fences, or extra text
+
+      EXAMPLES OF FIREZCRAWL USAGE:
+      - Agent with web research: Agent node with mcpTools containing Firecrawl, instructions mention using firecrawl_search or firecrawl_scrape
+      - Direct web scrape: MCP node with mcpAction="scrape", scrapeUrl set to target URL
+      - Web search: MCP node with mcpAction="search", searchQuery set to search term
     `;
 
     const userMessage = `Design a workflow for: "${prompt}"`;
 
-    console.log('🧠 Calling Anthropic API with:', prompt);
+    console.log('Calling Anthropic API with:', prompt);
 
     const msg = await anthropic.messages.create({
       model: getDefaultModel('anthropic'),
@@ -73,12 +326,13 @@ export async function POST(req: NextRequest) {
       system: systemMessage,
       messages: [{ role: 'user', content: [{ type: 'text', text: userMessage }] }],
     });
+    console.log(msg);
 
     console.log('✅ Anthropic API response received');
 
     // --- Step 2: Extract and parse text content ---
     const content = msg.content
-      .filter(block => block.type === 'text')
+      .filter(block => block.type === 'text') 
       .map(block => block.text)
       .join('\n')
       .trim();
@@ -105,7 +359,7 @@ export async function POST(req: NextRequest) {
     try {
       workflowData = JSON.parse(jsonString);
     } catch (err) {
-      console.error('❌ JSON parse error:', err);
+      console.error('JSON parse error:', err);
       console.error('Raw content:', content);
       return NextResponse.json(
         { error: 'Failed to parse AI workflow JSON output.' },
@@ -113,7 +367,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!Array.isArray(workflowData.nodes) || !Array.isArray(workflowData.edges)) {
+      if (!Array.isArray(workflowData.nodes) || !Array.isArray(workflowData.edges)) {
       return NextResponse.json(
         { error: 'Invalid workflow format: missing nodes or edges.' },
         { status: 500 }
@@ -122,14 +376,23 @@ export async function POST(req: NextRequest) {
 
     // --- Step 4: Normalize nodes and edges ---
     let currentNodeIdCounter = 1;
+    const nodeIdMap = new Map<string, string>(); // Map original IDs to final IDs
 
     const processedNodes: Node[] = workflowData.nodes.map((node: any, index: number) => {
-      // Ensure unique ID
-      if (!node.id?.startsWith('node_')) {
-        node.id = `node_${currentNodeIdCounter++}`;
+      const originalId = node.id;
+      let finalId = originalId;
+
+      // Ensure unique ID and track the mapping
+      if (!originalId || !originalId.startsWith('node_')) {
+        finalId = `node_${currentNodeIdCounter++}`;
+        if (originalId) {
+          nodeIdMap.set(originalId, finalId);
+        }
       } else {
-        const idNum = parseInt(node.id.split('_')[1], 10);
-        if (!isNaN(idNum)) currentNodeIdCounter = Math.max(currentNodeIdCounter, idNum + 1);
+        const idNum = parseInt(originalId.split('_')[1], 10);
+        if (!isNaN(idNum)) {
+            currentNodeIdCounter = Math.max(currentNodeIdCounter, idNum + 1);
+        }
       }
 
       // Ensure position
@@ -139,22 +402,59 @@ export async function POST(req: NextRequest) {
 
       // Ensure type and data
       node.type = node.type || node.data?.nodeType || 'agent';
+      const defaultNodeName = node.type.charAt(0).toUpperCase() + node.type.slice(1);
       node.data = {
+        // Preserve all existing data properties first
+        ...(node.data || {}),
+        // Ensure required fields (override if missing)
         nodeType: node.data?.nodeType || node.type,
-        nodeName:
-          node.data?.nodeName || node.data?.name || node.type.charAt(0).toUpperCase() + node.type.slice(1),
+        nodeName: node.data?.nodeName || node.data?.name || defaultNodeName,
+        label: node.data?.label || node.data?.nodeName || node.data?.name || defaultNodeName,
       };
 
-      return node;
+      return {
+        ...node,
+        id: finalId,
+      };
     });
 
-    const processedEdges: Edge[] = workflowData.edges.map((edge: any) => {
-      if (!edge.source || !edge.target) {
-        throw new Error(`Invalid edge missing source/target: ${JSON.stringify(edge)}`);
-      }
-      edge.id = edge.id || `edge-${edge.source}-${edge.target}`;
-      return edge;
-    });
+    // Create a set of valid processed node IDs for validation
+    const validNodeIds = new Set(processedNodes.map(n => n.id));
+
+    // Process edges and map source/target IDs to match processed node IDs
+    const processedEdges: Edge[] = workflowData.edges
+      .map((edge: any) => {
+        if (!edge.source || !edge.target) {
+          console.warn(`⚠️ Skipping invalid edge missing source/target: ${JSON.stringify(edge)}`);
+          return null;
+        }
+
+        // Map source and target IDs if they were changed during processing
+        const mappedSource = nodeIdMap.get(edge.source) || edge.source;
+        const mappedTarget = nodeIdMap.get(edge.target) || edge.target;
+
+        // Validate that both nodes exist
+        if (!validNodeIds.has(mappedSource)) {
+          console.warn(`⚠️ Skipping edge: source node '${mappedSource}' (original: '${edge.source}') does not exist`);
+          return null;
+        }
+        if (!validNodeIds.has(mappedTarget)) {
+          console.warn(`⚠️ Skipping edge: target node '${mappedTarget}' (original: '${edge.target}') does not exist`);
+          return null;
+        }
+
+        return {
+          id: edge.id || `edge-${mappedSource}-${mappedTarget}`,
+          source: mappedSource,
+          target: mappedTarget,
+          ...(edge.label && { label: edge.label }),
+          ...(edge.sourceHandle && { sourceHandle: edge.sourceHandle }),
+          ...(edge.targetHandle && { targetHandle: edge.targetHandle }),
+        };
+      })
+      .filter((edge): edge is Edge => edge !== null);
+
+    console.log(`✅ Node ID mappings:`, Object.fromEntries(nodeIdMap));
 
     console.log(`✅ Workflow processed: ${processedNodes.length} nodes, ${processedEdges.length} edges`);
 

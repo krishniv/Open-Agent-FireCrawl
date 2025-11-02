@@ -21,7 +21,8 @@ export default function PromptConsole({ onSubmit, isLoading = false }: PromptCon
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="fixed bottom-24 left-1/2 -translate-x-1/2 w-[600px] max-w-[calc(100vw-48px)] z-50"
+      className="fixed bottom-24 left-1/2 z-50 w-[600px] max-w-[calc(100vw-48px)]"
+      style={{ transform: 'translateX(-50%)' }}
     >
       <form
         onSubmit={handleSubmit}
